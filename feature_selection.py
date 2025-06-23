@@ -91,37 +91,3 @@ print(selected.tolist())
 # write out
 with open("selected_features.txt", "w") as f:
     f.write("\n".join(selected.tolist()))
-
-# take only the columns you kept
-X_train_sel = X_train[:, mask]
-
-# ----------------------------
-# 4. (Optional) 5‐fold CV on train set
-# ----------------------------
-# Uncomment and adapt if you still want your PredefinedSplit scheme:
-
-n_classes  = len(data_file_names)
-n_folds     = 5
-block_size  = train_len // n_folds  # = 180
-
-test_fold = np.empty(len(y_train), dtype=int)
-for class_id in range(n_classes):
-    base = class_id * train_len
-    for fold in range(n_folds):
-        start = base + fold * block_size
-        end   = base + (fold+1) * block_size
-        test_fold[start:end] = fold
-cv = PredefinedSplit(test_fold)
-
-pipeline = make_pipeline(
-    StandardScaler(),
-    SVC(kernel="rbf", class_weight="balanced"),
-)
-scores = cross_val_score(
-    pipeline, X_train_sel, y_train,
-    cv=cv,
-    scoring="f1_macro",
-    n_jobs=-1
-)
-print("5-fold CV f1_macro scores:", np.round(scores, 3))
-print("Mean f1_macro:", np.round(scores.mean(), 3))

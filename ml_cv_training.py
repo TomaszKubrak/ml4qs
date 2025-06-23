@@ -108,22 +108,74 @@ scores = cross_val_score(
 print("5-fold CV f1_macro scores:", np.round(scores, 3))
 print("Mean f1_macro:", np.round(scores.mean(), 3))
 
+# ------------------------------------------------------------------------------
+# … everything up through pipeline.fit(X_train, y_train) stays the same …
+# ------------------------------------------------------------------------------
+
 pipeline.fit(X_train, y_train)
 
-# Predict on the test set
-y_pred = pipeline.predict(X_test)
+# ------------------------------------------------------------------------------
+# 6. Predict in 30 s intervals on the test set
+# ------------------------------------------------------------------------------
+interval_size = 30                 # rows per 30 s
+n_intervals_per_class = test_len // interval_size
+n_classes = len(data_file_names)
 
-# Evaluate
-print("\n--- Test Set Evaluation ---")
-print(f"Test accuracy: {pipeline.score(X_test, y_test):.3f}\n")
+y_chunk_true = []
+y_chunk_pred = []
 
+for class_id in range(n_classes):
+    # compute start of this class’s block in the concatenated test set
+    base = class_id * test_len
+    for i in range(n_intervals_per_class):
+        start = base + i * interval_size
+        end   = start + interval_size
+
+        # true labels in this chunk (all the same, since df_test["label"] was constant)
+        true_labels = y_test[start:end]
+        y_chunk_true.append(true_labels[0])
+
+        # per‐sample predictions, then majority vote
+        preds = pipeline.predict(X_test[start:end])
+        # majority vote: take the label with highest count
+        majority_label = np.bincount(preds).argmax()
+        y_chunk_pred.append(majority_label)
+
+# ------------------------------------------------------------------------------
+# 7. Evaluate chunk-level predictions
+# ------------------------------------------------------------------------------
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+
+print("\n--- 30 s-chunk Evaluation (80 total chunks) ---")
+print(f"Overall chunk-accuracy: {np.mean(np.array(y_chunk_pred) == np.array(y_chunk_true)):.3f}\n")
+
+# per-class reports (names are the same as before)
 print("Classification report (per class):")
-print(classification_report(y_test, y_pred, target_names=list(data_file_names.values())))
+print(classification_report(y_chunk_true, y_chunk_pred,
+                            target_names=list(data_file_names.values())))
 
 print("Confusion matrix:")
-print(confusion_matrix(y_test, y_pred))
+print(confusion_matrix(y_chunk_true, y_chunk_pred))
 
-from sklearn.metrics import f1_score
+f1_macro_chunks = f1_score(y_chunk_true, y_chunk_pred, average="macro")
+print(f"Chunk F1 macro: {f1_macro_chunks:.3f}")
 
-f1_macro_test = f1_score(y_test, y_pred, average="macro")
-print(f"Test F1 macro: {f1_macro_test:.3f}")
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Create the confusion matrix
+cm = confusion_matrix(y_chunk_true, y_chunk_pred)
+
+# Define class names
+class_names = [name.replace("_features.csv", "") for name in data_file_names.values()]
+
+# Plot confusion matrix as heatmap
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=class_names, yticklabels=class_names)
+plt.xlabel("Predicted Label")
+plt.ylabel("True Label")
+plt.title("Confusion Matrix (30s Chunk-Level Predictions)")
+plt.tight_layout()
+plt.savefig("confusion_matrix_heatmap.jpg", dpi=300)
+plt.show()
